@@ -1,7 +1,7 @@
 [project]
 name = "xray-detector-chain"
 version = "0.1.0"
-description = "X-ray detector processing chain: calibration, 16-bit filtering and image quality metrics"
+description = "X-ray detector processing chain: calibration, 14-bit filtering and image quality metrics"
 readme = "README.md"
 authors = [
     { name = "Andrea Pasotti", email = "andreapasotti.eng@protonmail.com" }
@@ -22,6 +22,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "ipykernel>=7.4.0",
+    "jupyterlab>=4.0",
     "pytest>=9.1.1",
     "ruff>=0.16.10",
 ]
