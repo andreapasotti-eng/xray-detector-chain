@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "name": "walnut_tubeV1",
+    "data": "Walnut 1, orbit tubeV1 (Der Sarkissian et al. 2019, CC BY 4.0)",
+    "measured_in": "notebooks/02_simulator_parameters.ipynb",
+    "physical_shape": [
+      1536,
+      1944
+    ],
+    "binned_shape": [
+      768,
+      972
+    ]
+  },
+  "true": {
+    "g": {
+      "value": 0.11,
+      "unit": "ADU per quantum, physical pixel",
+      "stage": 4,
+      "source": "4 * k_eff / R_blur, assuming mean binning; field range 0.104-0.118"
+    },
+    "sigma_blur": {
+      "value": 1.08,
+      "unit": "physical pixels",
+      "stage": 3,
+      "source": "rho_1 = 0.50 with Gaussian PSF lookup; 1.03 top, 1.14 bottom"
+    },
+    "binning": {
+      "value": 2,
+      "unit": "pixels",
+      "stage": 5,
+      "source": "fixed, mean of 2x2 (assumed)"
+    },
+    "offset_level": {
+      "value": 342.7,
+      "unit": "ADU",
+      "stage": 6,
+      "source": "mean of the dark"
+    },
+    "offset_pixel_sigma": {
+      "value": 1.2,
+      "unit": "ADU",
+      "stage": 6,
+      "source": "cleaned dark, read noise subtracted"
+    },
+    "read_noise": {
+      "value": 0.459,
+      "unit": "ADU",
+      "stage": 7,
+      "source": "sqrt(0.542^2 - 1/12)"
+    },
+    "full_scale": {
+      "value": 16383,
+      "unit": "ADU",
+      "stage": 8,
+      "source": "14-bit detector"
+    },
+    "flat_drift": {
+      "value": 1.0064,
+      "unit": "ratio flat1 / flat0",
+      "stage": 1,
+      "source": "mean of (F1 - D) / (F0 - D), uniform part"
+    },
+    "seed": {
+      "value": 0,
+      "unit": "-",
+      "stage": 2,
+      "source": "chosen"
+    }
+  },
+  "targets": {
+    "k_eff_median": {
+      "value": 0.0061,
+      "unit": "ADU per quantum, binned",
+      "stage": null,
+      "source": "median var/mean, 16x16 blocks of d"
+    },
+    "sigma_read_measured": {
+      "value": 0.542,
+      "unit": "ADU",
+      "stage": null,
+      "source": "std(D1 - D2) / sqrt(2), three orbit pairs"
+    },
+    "offset_pixel_sigma": {
+      "value": 1.2,
+      "unit": "ADU",
+      "stage": null,
+      "source": "same method as the input"
+    },
+    "row_jump_std_dark": {
+      "value": 12.34,
+      "unit": "ADU",
+      "stage": null,
+      "source": "std of diff of dark row means"
+    },
+    "row_jump_std_diff": {
+      "value": 0.531,
+      "unit": "ADU",
+      "stage": null,
+      "source": "std of diff of row means of d"
+    },
+    "rho_1": {
+      "value": 0.5,
+      "unit": "-",
+      "stage": null,
+      "source": "neighbour correlation of d; 0.47 top, 0.53 bottom"
+    },
+    "gain_map_std": {
+      "value": 0.0053,
+      "unit": "fraction",
+      "stage": null,
+      "source": "std of rel in a bright 100 x 100 crop"
+    },
+    "even_odd_offset": {
+      "value": 2.23,
+      "unit": "ADU",
+      "stage": null,
+      "source": "mean of even minus odd fast column offsets, cols 30-939"
+    }
+  }
+}
