@@ -106,10 +106,10 @@
       "source": "neighbour correlation of d; 0.47 top, 0.53 bottom"
     },
     "gain_map_std": {
-      "value": 0.0053,
+      "value": 0.0047,
       "unit": "fraction",
       "stage": null,
-      "source": "std of rel in a bright 100 x 100 crop"
+      "source": "robust spread (half 16-84 percentile range) of rel in the bright 100 x 100 crop"
     },
     "even_odd_offset": {
       "value": 2.23,
