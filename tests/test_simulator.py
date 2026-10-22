@@ -1,0 +1,90 @@
+"""Simulator stages checked against answers known in advance."""
+
+import numpy as np
+import pytest
+
+from xray_detector_chain.simulator import (
+    apply_gain,
+    bin_mean,
+    blur,
+    mean_quanta,
+    quantum_noise,
+    to_physical,
+)
+
+
+def test_bin_mean_by_hand():
+    x = np.array([[1, 2, 5, 6],
+                  [3, 4, 7, 8],
+                  [0, 0, 1, 1],
+                  [0, 4, 1, 1]], dtype=float)
+    # blocks: (1 + 2 + 3 + 4) / 4 = 2.5, (5 + 6 + 7 + 8) / 4 = 6.5, (0 + 0 + 0 + 4) / 4 = 1, (1 + 1 + 1 + 1) / 4 = 1
+    assert np.array_equal(bin_mean(x), [[2.5, 6.5], [1.0, 1.0]])
+
+
+def test_to_physical_then_bin_returns_input():
+    # README: a binned map copied into 2 x 2 blocks and binned again is returned unchanged
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(6, 8))  # small random "binned map"
+    up = to_physical(x)
+    assert up.shape == (12, 16)
+    assert np.all(up[0:2, 0:2] == x[0, 0])  # the first 2 x 2 block holds the first value
+    assert np.allclose(bin_mean(up), x)  # equal up to float rounding (sum of 4 values / 4)
+
+
+def test_mean_quanta_by_hand():
+    beam = np.full((2, 3), 11000.0)  # binned grid, ADU
+    # 11000 ADU / 0.110 ADU per quantum = 100000 quanta per physical pixel; second flat x 1.0064 = 100640
+    q0 = mean_quanta(beam, g=0.110)
+    q1 = mean_quanta(beam, g=0.110, drift=1.0064)
+    assert q0.shape == (4, 6)  # physical grid
+    assert q0 == pytest.approx(np.full((4, 6), 100000.0))
+    assert q1 == pytest.approx(np.full((4, 6), 100640.0))
+
+
+def test_quantum_noise_is_poisson():
+    rng = np.random.default_rng(0)
+    mean = np.full((500, 500), 1000.0)  # 250 000 pixels, 1000 quanta each
+    counts = quantum_noise(mean, rng)
+    # Poisson: mean 1000 and variance 1000, so var/mean = 1
+    # tolerance: the variance from N values has relative error sqrt(2/N) = 0.0028; 0.015 is ~5 times that
+    assert counts.mean() == pytest.approx(1000, rel=0.001)
+    assert counts.var() / counts.mean() == pytest.approx(1, rel=0.015)
+    # independent pixels: correlation with the right neighbour ~0 (error 1/sqrt(N) = 0.002)
+    c = np.corrcoef(counts[:, :-1].ravel(), counts[:, 1:].ravel())[0, 1]
+    assert abs(c) < 0.01
+
+def test_blur_keeps_mean_and_spreads_noise():
+    rng = np.random.default_rng(2)
+    counts = quantum_noise(np.full((600, 600), 1000.0), rng)  # white noise: var = mean = 1000
+    sigma = 1.08  # physical pixels
+    out = blur(counts, sigma)
+    # 1. the blur moves quanta, it does not create or destroy them: same mean
+    assert out.mean() == pytest.approx(counts.mean(), rel=1e-6)
+    # 2. variance kept by a Gaussian PSF: 1 / (4 pi sigma^2) = 0.0682 at sigma = 1.08
+    #    tolerance: this ratio varies by 0.7 % between seeds (correlated pixels); 0.04 is ~6 times that
+    assert out.var() / counts.var() == pytest.approx(1 / (4 * np.pi * sigma**2), rel=0.04)
+    # 3. neighbours become correlated: exp(-1 / (4 sigma^2)) = 0.807 at sigma = 1.08
+    x = out - out.mean()
+    rho1 = np.mean(x[:, :-1] * x[:, 1:]) / x.var()
+    assert rho1 == pytest.approx(np.exp(-1 / (4 * sigma**2)), abs=0.01)
+
+def test_gain_by_hand():
+    quanta = np.full((4, 6), 100000.0)  # physical grid
+    gain_rel = np.zeros((2, 3))  # binned grid
+    gain_rel[0, 0] = 0.01  # first binned pixel +1 %
+    adu = apply_gain(quanta, g=0.110, gain_rel=gain_rel)
+    # 100000 x 0.110 = 11000 ADU; the first 2 x 2 physical block x 1.01 = 11110 ADU
+    assert adu.shape == (4, 6)
+    assert adu[0:2, 0:2] == pytest.approx(np.full((2, 2), 11110.0))
+    assert adu[2:, :] == pytest.approx(np.full((2, 6), 11000.0))
+
+
+def test_noiseless_chain_reproduces_flat():
+    # README: beam x (1 + gain map) reproduces the measured flat. Without noise and blur,
+    # stages 1, 4 and 5 must return it: g cancels (divided at stage 1, multiplied at stage 4)
+    rng = np.random.default_rng(3)
+    beam = rng.uniform(7000, 14000, size=(6, 8))  # binned grid, ADU
+    gain_rel = rng.normal(0, 0.005, size=(6, 8))  # 0.5 % pattern, binned grid
+    flat = bin_mean(apply_gain(mean_quanta(beam, g=0.110), g=0.110, gain_rel=gain_rel))
+    assert flat == pytest.approx(beam * (1 + gain_rel), rel=1e-12)
