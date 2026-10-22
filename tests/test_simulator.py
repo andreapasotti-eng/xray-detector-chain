@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+
 from xray_detector_chain import load_params
 from xray_detector_chain.simulator import (
     apply_gain,
