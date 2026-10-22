@@ -2,7 +2,7 @@
 
 Processing chain for a 14-bit flat-panel X-ray detector, from raw ADU values to corrected projections with measured image quality. Each correction and metric is validated on a simulated detector with known parameters before being applied to real data.
 
-**Status:** Milestone 1 (data exploration) complete. Milestone 2 in progress: model defined, parameters measured on real data, including effective gain and scintillator blur ([`notebooks/02_simulator_parameters.ipynb`](notebooks/02_simulator_parameters.ipynb)); ground-truth file in [`params/`](params/); implementation next.
+**Status:** Milestone 1 (data exploration) complete. Milestone 2 in progress: parameters measured on real data ([`notebooks/02_simulator_parameters.ipynb`](notebooks/02_simulator_parameters.ipynb)), ground-truth file in [`params/`](params/), simulator stages 1–8 implemented in [`src/xray_detector_chain/`](src/xray_detector_chain/) and tested stage by stage; validation of complete simulated darks and flats against the measured targets next.
 
 ## Data
 
@@ -31,8 +31,9 @@ Details and plots in [`notebooks/01_exploration.ipynb`](notebooks/01_exploration
 
 **Flat (dark-subtracted)**
 - The non-uniformity is dominated by the beam profile: along the central row the signal rises smoothly from ~7500 to ~13900 ADU, with its maximum near column 800, not at the centre of the image.
-- On top of it, a fixed hexagonal pattern: ~10 px between cell centres vertically and ~8.7 px between staggered columns horizontally (ratio √3/2 of a regular honeycomb), i.e. cells of ~1.5 mm. Std of the relative pattern 0.53 % in a bright 100 × 100 region; quantum noise contributes ~0.05 %.
+- On top of it, a fixed hexagonal pattern: ~10 px between cell centres vertically and ~8.7 px between staggered columns horizontally (ratio √3/2 of a regular honeycomb), i.e. cells of ~1.5 mm. Std of the relative pattern 0.53 % in a bright 100 × 100 region (robust spread 0.47 %); quantum noise contributes ~0.05 %.
 - Thin horizontal lines, some isolated roughly every 128 rows (≈ 64, 192, 320, 448, 576, 704), probably readout-block boundaries. They have the same amplitude in % where the beam is weak and strong, so they are a gain effect, not an offset.
+- 630 point defects (0.084 %), almost all dark, deviate by more than 2 % from their neighbours along both the row and the column (−4.5 % on average). Their mean neighbourhood is a one-pixel cross, not a line: isolated defects, not hexagon walls. The cross is consistent with a defect blurred by the scintillator.
 - The first and last ~20 rows of the relative pattern drop by up to 2.6 %: smoothing artefact, not a detector edge. The drop grows with the smoothing width (2 / 15 / 27 rows below −0.5 % for σ = 5 / 15 / 30 px) and the raw row profile shows no drop.
 
 **Flat drift during the orbit**
@@ -81,7 +82,7 @@ Stages in order. The physical grid is 1536 × 1944 pixels (74.8 µm); the binned
 - `true`: the inputs the simulator is built from (for example read noise 0.459 ADU);
 - `targets`: what the analysis of the real data measured (for example σ_read 0.542 ADU). Simulated data, analysed with the same functions, must reproduce the targets; comparing with `true` would only check that the simulator returns its own inputs.
 
-[`params/walnut_tubeV1_maps.npz`](params/walnut_tubeV1_maps.npz) holds the measured vectors and maps: `row_offsets` (768), `col_offsets` (972), `gain_rel` (768 × 972), `beam` (768 × 972, ADU). They are derived from the Walnut data (CC BY 4.0, cited above) and stored in the repository so that tests run without the dataset.
+[`params/walnut_tubeV1_maps.npz`](params/walnut_tubeV1_maps.npz) holds the measured vectors and maps: `row_offsets` (768), `col_offsets` (972), `gain_rel` (768 × 972, anomalous pixels replaced, see below), `beam` (768 × 972, ADU). They are derived from the Walnut data (CC BY 4.0, cited above) and stored in the repository so that tests run without the dataset.
 
 ### Measured parameters
 
@@ -95,8 +96,8 @@ Details in [`notebooks/02_simulator_parameters.ipynb`](notebooks/02_simulator_pa
 | Per-pixel offset | σ = 1.20 ADU | 6 | one dark with rows, columns and slow part removed; read noise subtracted in quadrature |
 | Read noise, measured | 0.542 ADU, includes rounding | — | std(D1 − D2)/√2 over three orbit pairs (0.538–0.547); smoothing σ = 3 px, its noise loss corrected |
 | Read noise, electronic | 0.459 ADU = √(0.542² − 1/12) | 7 | rounding (0.289 ADU) is added at stage 8 |
-| Relative gain map | measured map, replicated in 2×2 blocks | 4 | (mean flat − dark) divided by its Gaussian-smoothed version (σ = 15 px). Beam and gain map come from the same smoothing, so beam × (1 + gain map) reproduces the measured flat exactly, edge rows included |
-| Scintillator blur | σ = 1.08 physical pixels (1.03 top half, 1.14 bottom half) | 3 | neighbour correlation rho_1 of d (0.50) converted with a lookup table from simulated white noise (Gaussian blur on the physical grid, 2×2 mean binning) |
+| Relative gain map | measured map, replicated in 2×2 blocks; 630 point defects replaced | 4 | (mean flat − dark) divided by its Gaussian-smoothed version (σ = 15 px). Beam and gain map come from the same smoothing, so beam × (1 + gain map) reproduces the measured flat exactly, edge rows included. Pixels deviating by more than 2 % from the 5-pixel medians along the row and along the column replaced with the median along the row (row lines kept) |
+| Scintillator blur | σ = 1.08 physical pixels (1.03 top half, 1.14 bottom half) | 3 | neighbour correlation rho_1 of d (0.50) converted with a lookup table from simulated white noise (Gaussian blur on the physical grid, 2×2 mean binning); 1.085 before rounding |
 | Effective gain | g = 0.110 ADU per quantum (0.104 bottom, 0.118 top) | 4 | g = 4 × k_eff / R_blur, with k_eff = 0.0061 and R_blur = 0.222 the variance reduction by the blur at σ = 1.08. Assumes mean binning: with sum binning g would be 4 times smaller |
 | Flat drift | 1.0064, uniform | 1 | mean of (F1 − D)/(F0 − D); the object-shaped part is residual image, not simulated |
 
@@ -109,6 +110,7 @@ Checks in [`notebooks/01_exploration.ipynb`](notebooks/01_exploration.ipynb), se
 - **Blur and binning lower the variance–mean slope.** Without blur or binning the slope equals g. The mean of 4 independent pixels has one quarter of the variance and the same mean, so binning alone gives g/4. Blur lowers the variance further without changing the mean, by the factor R_blur = 0.222 at σ = 1.08: k_eff = g/4 × R_blur.
 - **A dead physical pixel reads 75% of its neighbours after binning, not zero.** Defect detection must look for deviations from the neighbours, not for zero values.
 - **The flat non-uniformity is mostly beam profile.** The slow variation (~6000 ADU across a row) is assigned to the beam, the fast pixel-to-pixel part to the gain map. The noise supports this choice only partly: var/mean does not follow the signal, but it changes across the detector (see Simplifications).
+- **Anomalous pixels of the gain map are replaced with a threshold in % of gain, not in σ.** The spread of the residual after a 5-pixel median (0.256 %) is the hexagonal pattern itself, five times the quantum noise: a 5σ threshold flagged 0.56 % of the pixels (0.19 % requiring both directions), cutting into the hexagon walls. The threshold (2 %) lies above the walls and well below the defects simulated in Milestone 3 (−12.5 % to −25 % after binning), which real outliers would otherwise turn into false positives. After the replacement the robust spread of the pattern is unchanged (0.467 → 0.466 %); weaker anomalies (1–2 %) remain.
 - **The measured gain map is used directly.** Replicating each binned value in a 2×2 block on the physical grid returns exactly the measured map after binning. A synthetic honeycomb was not used: flat-field correction removes any multiplicative pattern, so the choice cannot change the calibration results.
 
 ### Simplifications and exclusions
@@ -131,17 +133,23 @@ The simulator is built on these assumptions, so its results cannot confirm them;
 - **Gaussian PSF.** σ_blur comes from the neighbour correlation. The correlation between adjacent row means (0.569) is higher than the neighbour correlation (0.50), which a Gaussian PSF would make equal: there is extra correlation over a few pixels (PSF tails or residual drift), to compare with the measured MTF in Milestone 5.
 - **Linear, shift-invariant blur.** One σ for the whole detector, while the incidence is oblique up to ~30° on one side; the MTF will be measured near the centre.
 
-### Open decisions before implementation
+### Implementation
 
-- Replacement of anomalous pixels in the measured gain map. A 1×5 median along the rows keeps the row lines, but with a 5σ threshold it replaced 0.56 % of the pixels and lowered the pattern std from 0.53 % to 0.48 %: it cuts into the hexagon walls. To revise before the map is final.
+- [`src/xray_detector_chain/params.py`](src/xray_detector_chain/params.py): `load_params()` reads the JSON and npz files of `params/`.
+- [`src/xray_detector_chain/simulator.py`](src/xray_detector_chain/simulator.py): one function per stage (`mean_quanta`, `quantum_noise`, `blur`, `apply_gain`, `bin_mean`, `offset_map`, `read_noise`, `digitize`) and the grid change `to_physical`. The fixed offset map is drawn once; quantum and read noise are drawn for every frame from one random generator, so a run is reproducible and two frames have different noise.
 
-### Validation (planned)
+### Validation
 
-Simulated data analysed with the same functions as the real data, compared with the `targets` in the ground-truth file:
-- Variance–mean slope: g without blur and binning, g/4 with binning only, g/4 × R_blur with both; median var/mean ≈ 0.0061 with the measured parameters.
-- Neighbour correlation rho_1 ≈ 0.50.
-- Simulated darks: σ_read from the difference of two darks ≈ 0.542 ADU; std of row-to-row jumps ≈ 12.34 ADU; per-pixel offset ≈ 1.20 ADU; even/odd column offset ≈ 2.23 ADU.
-- Simulated flat pair: std of row-to-row jumps of d ≈ 0.53 ADU; std of the relative gain pattern ≈ 0.53 %.
+Tests in [`tests/`](tests/) run in CI. Done so far:
+- Each stage against values computed by hand or from formulas: 2×2 mean binning, quanta from ADU, Poisson statistics, Gaussian blur (variance kept 1/(4πσ²) = 0.068, neighbour correlation 0.807 on the physical grid), gain, offset map. Without noise and blur the chain returns beam × (1 + gain map).
+- Variance–mean slope of a uniform simulated flat: g = 0.110 without blur and binning, g/4 with binning only, g/4 × R_blur ≈ 0.0061 with both.
+- Simulated darks: std of row-to-row jumps 12.34 ADU; σ_read from the difference of two darks 0.542 ADU (0.459 electronic + 0.289 rounding). Rounding adds 1/√12 even with σ = 0.459 because the per-pixel offset spreads the fractional parts uniformly.
+- Parameter files: shapes, units, stages, and the cleaned gain map.
+
+Planned: complete simulated darks and flat pairs analysed with the same functions as the real data, compared with the `targets`:
+- median var/mean of d in 16×16 blocks: 0.0061 measured; the simulator is expected to give 0.00614 because σ_blur is rounded to 1.08 (R_blur 0.2234 instead of 0.222 at 1.085);
+- neighbour correlation rho_1 ≈ 0.50; per-pixel offset ≈ 1.20 ADU; even/odd column offset ≈ 2.23 ADU;
+- std of row-to-row jumps of d ≈ 0.53 ADU; robust spread of the relative gain pattern ≈ 0.47 %.
 
 ## Out of scope
 
@@ -152,7 +160,7 @@ Simulated data analysed with the same functions as the real data, compared with 
 ## Roadmap
 
 - [x] 1. Data exploration
-- [ ] 2. Detector simulator with known ground truth (model defined, parameters measured, ground-truth file written, implementation next)
+- [ ] 2. Detector simulator with known ground truth (parameters measured, stages 1–8 implemented and tested; validation of complete frames against the targets next)
 - [ ] 3. Calibration: offset/gain correction, conversion gain, defective pixels
 - [ ] 4. Filtering: noise/sharpness trade-off measured with NPS and MTF
 - [ ] 5. Image quality: SNR, CNR, NPS, slanted-edge MTF against an analytic reference
@@ -164,8 +172,10 @@ Simulated data analysed with the same functions as the real data, compared with 
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) (`pyproject.toml`, `uv.lock`).
 
 ```bash
-uv sync                  # creates .venv and installs the locked dependencies
+uv sync                  # creates .venv, installs the locked dependencies and the package (editable)
 uv run jupyter lab       # opens the notebooks
+uv run pytest            # runs the tests (no dataset needed: parameters are in params/)
+uv run ruff check .      # lint, also run in CI
 ```
 
 Data are not included in the repository. Download `Walnut1.zip` from Zenodo (DOI [10.5281/zenodo.2686725](https://doi.org/10.5281/zenodo.2686725)) and extract `Walnut1/Projections/tubeV1/`, plus the darks `tubeV2/di000000.tif` and `tubeV3/di000000.tif` into sibling folders of `tubeV1`. Set `DATA` in the first code cell of each notebook to the `tubeV1` folder.
