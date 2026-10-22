@@ -30,3 +30,21 @@ def blur(counts, sigma):
 def apply_gain(quanta, g, gain_rel):
     """Stage 4: blurred quanta (physical grid) -> ADU (float). gain_rel: binned grid, fraction."""
     return quanta * g * (1 + to_physical(gain_rel))
+
+def offset_map(level, row_offsets, col_offsets, pixel_sigma, rng):
+    """Stage 6 (fixed pattern): offset of every binned pixel (ADU), the same in every frame.
+
+    level: mean offset (ADU); row_offsets (rows,), col_offsets (cols,): ADU;
+    pixel_sigma: std of the per-pixel offset (ADU), drawn once from rng.
+    """
+    pixel = rng.normal(0, pixel_sigma, size=(row_offsets.size, col_offsets.size))
+    return level + row_offsets[:, np.newaxis] + col_offsets[np.newaxis, :] + pixel
+
+def read_noise(shape, sigma, rng):
+    """Stage 7: Gaussian read noise (ADU), drawn again for every frame."""
+    return rng.normal(0, sigma, size=shape)
+
+
+def digitize(adu, full_scale):
+    """Stage 8: round to integer ADU, clip to [0, full_scale], store as uint16 like the TIFF files."""
+    return np.clip(np.round(adu), 0, full_scale).astype(np.uint16)

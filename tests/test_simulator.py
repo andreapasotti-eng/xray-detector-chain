@@ -2,13 +2,16 @@
 
 import numpy as np
 import pytest
-
+from xray_detector_chain import load_params
 from xray_detector_chain.simulator import (
     apply_gain,
     bin_mean,
     blur,
+    digitize,
     mean_quanta,
+    offset_map,
     quantum_noise,
+    read_noise,
     to_physical,
 )
 
@@ -107,3 +110,41 @@ def test_slope_of_the_chain():
     assert slope(bin_mean(physical)) == pytest.approx(g / 4, rel=0.025)  # binning only
     blurred = bin_mean(apply_gain(blur(counts, sigma_blur), g, no_pattern))  # blur and binning
     assert slope(blurred) == pytest.approx(g / 4 * r_blur, rel=0.035)  # 0.0061: the k_eff target
+
+def test_offset_map_by_hand():
+    rows = np.array([0.0, 10.0])  # 2 row offsets, ADU
+    cols = np.array([0.0, 1.0, 2.0])  # 3 column offsets, ADU
+    m = offset_map(300.0, rows, cols, pixel_sigma=0.0, rng=np.random.default_rng(0))
+    # pixel (r, c) = 300 + rows[r] + cols[c]
+    assert np.array_equal(m, [[300.0, 301.0, 302.0], [310.0, 311.0, 312.0]])
+
+
+def test_offset_map_with_measured_parameters():
+    scalars, maps = load_params()
+    true = scalars["true"]
+    m = offset_map(true["offset_level"]["value"], maps["row_offsets"], maps["col_offsets"],
+                   true["offset_pixel_sigma"]["value"], np.random.default_rng(0))
+    assert m.shape == (768, 972)
+    # per-pixel part: what is left after removing level, rows and columns has std 1.20 ADU
+    # tolerance: std from 746 496 values, relative error 1/sqrt(2N) = 0.0008; 0.005 is ~6 times that
+    pixel = m - true["offset_level"]["value"] - maps["row_offsets"][:, None] - maps["col_offsets"][None, :]
+    assert pixel.std() == pytest.approx(1.20, rel=0.005)
+    # row stripes: std of the jumps between row means = 12.34 ADU (target of the simulated dark)
+    # the per-pixel part adds 1.20 x sqrt(2 / 972) = 0.05 ADU in quadrature: negligible
+    jumps = np.diff(m.mean(axis=1))
+    target = scalars["targets"]["row_jump_std_dark"]["value"]
+    assert jumps.std() == pytest.approx(target, rel=0.01)
+
+def test_two_darks_give_measured_read_noise():
+    scalars, maps = load_params()
+    true = scalars["true"]
+    rng = np.random.default_rng(5)
+    offsets = offset_map(true["offset_level"]["value"], maps["row_offsets"], maps["col_offsets"],
+                         true["offset_pixel_sigma"]["value"], rng)  # stage 6: drawn once
+    darks = [digitize(offsets + read_noise(offsets.shape, true["read_noise"]["value"], rng),
+                      true["full_scale"]["value"]) for _ in range(2)]  # stages 7 and 8: every frame
+    diff = darks[0].astype(np.float64) - darks[1]  # float first: uint16 0 - 1 would give 65535
+    # same method as the real darks: std(D1 - D2) / sqrt(2) = 0.542 ADU (0.459 read + 0.289 rounding)
+    # tolerance: 0.06 % spread over 20 seeds; 0.005 is ~8 times that
+    target = scalars["targets"]["sigma_read_measured"]["value"]
+    assert diff.std() / np.sqrt(2) == pytest.approx(target, rel=0.005)
