@@ -88,3 +88,22 @@ def test_noiseless_chain_reproduces_flat():
     gain_rel = rng.normal(0, 0.005, size=(6, 8))  # 0.5 % pattern, binned grid
     flat = bin_mean(apply_gain(mean_quanta(beam, g=0.110), g=0.110, gain_rel=gain_rel))
     assert flat == pytest.approx(beam * (1 + gain_rel), rel=1e-12)
+
+def slope(x):
+    """var/mean of an image (ADU): the variance-mean slope of a uniform flat."""
+    return x.var() / x.mean()
+
+
+def test_slope_of_the_chain():
+    # README, "Blur and binning lower the variance-mean slope": g, then g/4, then g/4 x R_blur
+    g, sigma_blur, r_blur = 0.110, 1.08, 0.222  # R_blur: notebook 02 lookup table (rho_1 = 0.50)
+    beam = np.full((300, 300), 11000.0)  # binned grid, ADU -> 100000 quanta per physical pixel
+    no_pattern = np.zeros((300, 300))  # gain map off: only noise is left
+    counts = quantum_noise(mean_quanta(beam, g), np.random.default_rng(4))
+    # tolerances: ~5 times the spread of each slope over 20 seeds (0.2 %, 0.4 %, 0.6 %);
+    # the last one also covers +0.7 %: R_blur is 0.2234 at sigma 1.08, 0.222 at the unrounded 1.085
+    physical = apply_gain(counts, g, no_pattern)  # no blur, no binning
+    assert slope(physical) == pytest.approx(g, rel=0.01)
+    assert slope(bin_mean(physical)) == pytest.approx(g / 4, rel=0.025)  # binning only
+    blurred = bin_mean(apply_gain(blur(counts, sigma_blur), g, no_pattern))  # blur and binning
+    assert slope(blurred) == pytest.approx(g / 4 * r_blur, rel=0.035)  # 0.0061: the k_eff target
